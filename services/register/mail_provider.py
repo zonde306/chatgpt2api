@@ -23,6 +23,75 @@ provider_lock = Lock()
 domain_index = 0
 provider_index = 0
 
+YYDS_DEFAULT_DOMAINS = (
+    "now-sohusports.com",
+    "10011.hzeg.eu.org",
+    "10086.hzeg.eu.org",
+    "dx.jesys.net",
+    "mail.sunshine8.site",
+    "mail.wuwang1028.bond",
+    "xiejiang.site",
+    "ai.2026157.xyz",
+    "mail.1m1.dpdns.org",
+    "tokenizer.qwen3-30b-a3b.xyz",
+    "15768.xyz",
+    "israeloil.abrdns.com",
+    "mmail.wuwang1028.bond",
+    "rs.sdfe.app",
+    "tm.spkun.org",
+    "wyattcloud.vip",
+    "xiaolajiao.dedyn.io",
+    "znhyo.dpdns.org",
+    "20220108.xyz",
+    "666162.xyz",
+    "a0.engineer",
+    "a0.jesys.net",
+    "app.longlivethepeople.dpdns.org",
+    "dsqcyy.com",
+    "email.fibcbxa.shop",
+    "lingeriesceinturesfemme.com",
+    "lsa1230.dpdns.org",
+    "xuicf1r.site",
+    "yyds.tadeo.bond",
+    "chatgpt.qwen3-30b-a3b.xyz",
+    "emoij.indevs.in",
+    "579199.xyz",
+    "chen-hai.sryze.cc",
+    "lvcaodibeer.com",
+    "mail.0m0.email",
+    "mail.tadeo.bond",
+    "mailx.04.mom",
+    "microsoftazureamazonawsibmapplenvidiaoracleciscoadobe.com",
+    "tynxbzz.com",
+    "vnn.indevs.in",
+    "xiaolajiao.tech",
+    "yyds.wessvan.com",
+    "blueshieldpharma.com",
+    "flowmail.site",
+    "luguangtech.com",
+    "mm.rc0101.site",
+    "r4.sdfe.app",
+    "sn6fk3.nsmjj.tech",
+    "tm.488448.xyz",
+    "0m0.app",
+    "21sad.xyz",
+    "908209381.shop",
+    "9l.sdfe.app",
+    "api.qwen3-30b-a3b.xyz",
+    "d.729406.xyz",
+    "dschat.asia",
+    "edumail.zenithsr.pro",
+    "em.rc0101.site",
+    "hgu717.ninja",
+    "letv377.nsmjj.tech",
+    "misty.indevs.in",
+    "ncyc7b.2026157.xyz",
+    "work.2026157.xyz",
+    "xddroot.eu.org",
+    "det.indevs.in",
+    "l8.jesys.net",
+)
+
 
 def _config(mail_config: dict) -> dict:
     return {
@@ -39,6 +108,27 @@ def _random_mailbox_name() -> str:
 
 def _random_subdomain_label() -> str:
     return "".join(random.choices(string.ascii_lowercase + string.digits, k=random.randint(4, 10)))
+
+
+def _bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
+def _ratio(value: Any, default: float) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = default
+    return max(0.0, min(1.0, number))
 
 
 def _next_domain(domains: list[str]) -> str:
@@ -575,6 +665,8 @@ class YydsMailProvider(BaseMailProvider):
         self.api_base = str(entry.get("api_base") or "https://maliapi.215.im/v1").rstrip("/")
         self.api_key = str(entry["api_key"]).strip()
         self.domain = [str(item).strip() for item in (entry.get("domain") or []) if str(item).strip()]
+        self.domain_learning = _bool(entry.get("domain_learning"), True)
+        self.domain_explore_rate = _ratio(entry.get("domain_explore_rate"), 0.12 if self.domain_learning else 0.0)
         self.subdomain = str(entry.get("subdomain") or "").strip()
         self.wildcard = bool(entry.get("wildcard"))
         self.session = requests.Session()
@@ -614,13 +706,24 @@ class YydsMailProvider(BaseMailProvider):
     def _items(data):
         return data if isinstance(data, list) else data.get("items") or data.get("messages") or data.get("data") or []
 
+    def _select_domain(self) -> str:
+        if self.domain_learning and random.random() < self.domain_explore_rate:
+            return ""
+        seed_domains = self.domain or list(YYDS_DEFAULT_DOMAINS)
+        domains: list[str] = []
+        if self.domain_learning:
+            domains.extend(domain_reputation.store.good_domains(self.name))
+        domains.extend(seed_domains)
+        preferred = domain_reputation.store.preferred_domains(self.name, domains)
+        if preferred:
+            return _next_domain(preferred)
+        return ""
+
     def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
         payload = {"localPart": username or _random_mailbox_name()}
-        domains = domain_reputation.store.filter_domains(self.name, self.domain)
-        if not domains:
-            domains = domain_reputation.store.good_domains(self.name)
-        if domains:
-            payload["domain"] = _next_domain(domains)
+        domain = self._select_domain()
+        if domain:
+            payload["domain"] = domain
         if self.subdomain:
             payload["subdomain"] = self.subdomain
         data = self._request("POST", "/accounts/wildcard" if self.wildcard else "/accounts", payload=payload)

@@ -40,6 +40,18 @@ def _domain(value: str) -> str:
     return text.strip(".")
 
 
+def _domains(values: list[str]) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        domain = _domain(value)
+        if not domain or domain in seen:
+            continue
+        seen.add(domain)
+        out.append(domain)
+    return out
+
+
 def classify_failure(reason: str) -> str:
     text = str(reason or "")
     if any(marker in text for marker in HARD_FAILURE_MARKERS):
@@ -88,6 +100,7 @@ class DomainReputationStore:
             record = self._record(data, provider, domain)
             record["success"] = int(record.get("success") or 0) + 1
             record["consecutive_fail"] = 0
+            record["disabled"] = False
             record["last_success_at"] = _now()
             self._save_locked(data)
             return dict(record)
@@ -125,11 +138,34 @@ class DomainReputationStore:
             return bool(record.get("disabled"))
 
     def filter_domains(self, provider: str, domains: list[str]) -> list[str]:
-        normalized = [_domain(item) for item in domains if _domain(item)]
+        normalized = _domains(domains)
         if not normalized:
             return []
         enabled = [item for item in normalized if not self.is_disabled(provider, item)]
         return enabled or normalized
+
+    def preferred_domains(self, provider: str, domains: list[str]) -> list[str]:
+        normalized = _domains(domains)
+        if not normalized:
+            return []
+        with self._lock:
+            data = self._load_locked()
+            records = (((data.get("providers") or {}).get(str(provider or "unknown")) or {}).get("domains") or {})
+            scored: list[tuple[int, str]] = []
+            for domain in normalized:
+                record = records.get(domain) or {}
+                if bool(record.get("disabled")):
+                    continue
+                success = int(record.get("success") or 0)
+                hard_fail = int(record.get("hard_fail") or 0)
+                soft_fail = int(record.get("soft_fail") or 0)
+                consecutive_fail = int(record.get("consecutive_fail") or 0)
+                score = success * 100 - hard_fail * 1000 - soft_fail * 10 - consecutive_fail * 20
+                scored.append((score, domain))
+            if not scored:
+                return []
+            best = max(score for score, _ in scored)
+            return [domain for score, domain in scored if score == best]
 
     def good_domains(self, provider: str) -> list[str]:
         with self._lock:

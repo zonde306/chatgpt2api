@@ -49,6 +49,16 @@ class MailDomainReputationTests(unittest.TestCase):
         self.assertFalse(store.is_disabled("yyds_mail", "slow.example"))
         self.assertEqual(store.good_domains("yyds_mail"), ["good.example"])
 
+    def test_success_reenables_domain_discovered_by_learning(self):
+        store = self.make_store()
+        store.record_failure("yyds_mail", "recovered.example", "unsupported_email")
+        self.assertTrue(store.is_disabled("yyds_mail", "recovered.example"))
+
+        store.record_success("yyds_mail", "recovered.example")
+
+        self.assertFalse(store.is_disabled("yyds_mail", "recovered.example"))
+        self.assertEqual(store.preferred_domains("yyds_mail", ["recovered.example"]), ["recovered.example"])
+
     def test_yyds_provider_skips_disabled_configured_domain(self):
         store = self.make_store()
         store.record_failure("yyds_mail", "bad.example", "unsupported_email")
@@ -68,7 +78,7 @@ class MailDomainReputationTests(unittest.TestCase):
         store = self.make_store()
         store.record_success("yyds_mail", "learned.example")
         provider = mail_provider.YydsMailProvider(
-            {"api_base": "https://maliapi.example/v1", "api_key": "key", "domain": []},
+            {"api_base": "https://maliapi.example/v1", "api_key": "key", "domain": [], "domain_explore_rate": 0},
             {"request_timeout": 1, "wait_timeout": 1, "wait_interval": 0.2, "user_agent": "ua"},
         )
         provider.session = FakeYydsSession()
@@ -78,6 +88,59 @@ class MailDomainReputationTests(unittest.TestCase):
 
         self.assertEqual(mailbox["domain"], "learned.example")
         self.assertEqual(provider.session.payloads[0]["domain"], "learned.example")
+
+    def test_yyds_provider_uses_builtin_seed_domains_when_config_domain_empty(self):
+        store = self.make_store()
+        provider = mail_provider.YydsMailProvider(
+            {"api_base": "https://maliapi.example/v1", "api_key": "key", "domain": [], "domain_explore_rate": 0},
+            {"request_timeout": 1, "wait_timeout": 1, "wait_interval": 0.2, "user_agent": "ua"},
+        )
+        provider.session = FakeYydsSession()
+
+        with mock.patch.object(mail_provider.domain_reputation, "store", store):
+            mailbox = provider.create_mailbox("name")
+
+        self.assertIn(mailbox["domain"], mail_provider.YYDS_DEFAULT_DOMAINS)
+        self.assertIn(provider.session.payloads[0]["domain"], mail_provider.YYDS_DEFAULT_DOMAINS)
+
+    def test_yyds_provider_explores_random_pool_when_learning_triggers(self):
+        store = self.make_store()
+        provider = mail_provider.YydsMailProvider(
+            {"api_base": "https://maliapi.example/v1", "api_key": "key", "domain": ["seed.example"], "domain_explore_rate": 1},
+            {"request_timeout": 1, "wait_timeout": 1, "wait_interval": 0.2, "user_agent": "ua"},
+        )
+        provider.session = FakeYydsSession()
+
+        with mock.patch.object(mail_provider.domain_reputation, "store", store):
+            mailbox = provider.create_mailbox("name")
+
+        self.assertNotIn("domain", provider.session.payloads[0])
+        self.assertEqual(mailbox["domain"], "random.example")
+
+    def test_yyds_provider_explores_random_pool_when_all_known_domains_disabled(self):
+        store = self.make_store()
+        store.record_failure("yyds_mail", "bad.example", "unsupported_email")
+        store.record_failure("yyds_mail", "worse.example", "account_creation_failed")
+        provider = mail_provider.YydsMailProvider(
+            {"api_base": "https://maliapi.example/v1", "api_key": "key", "domain": ["bad.example", "worse.example"], "domain_explore_rate": 0},
+            {"request_timeout": 1, "wait_timeout": 1, "wait_interval": 0.2, "user_agent": "ua"},
+        )
+        provider.session = FakeYydsSession()
+
+        with mock.patch.object(mail_provider.domain_reputation, "store", store):
+            mailbox = provider.create_mailbox("name")
+
+        self.assertNotIn("domain", provider.session.payloads[0])
+        self.assertEqual(mailbox["domain"], "random.example")
+
+    def test_preferred_domains_prioritizes_success_and_demotes_soft_failures(self):
+        store = self.make_store()
+        store.record_success("yyds_mail", "winner.example")
+        store.record_success("yyds_mail", "tired.example")
+        for _ in range(10):
+            store.record_failure("yyds_mail", "tired.example", "等待注册验证码超时")
+
+        self.assertEqual(store.preferred_domains("yyds_mail", ["tired.example", "winner.example", "fresh.example"]), ["winner.example"])
 
     def test_worker_records_success_and_failure_domains(self):
         store = self.make_store()

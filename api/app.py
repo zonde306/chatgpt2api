@@ -47,6 +47,14 @@ def create_app() -> FastAPI:
     if config.images_dir.exists():
         app.mount("/images", StaticFiles(directory=str(config.images_dir)), name="images")
 
+    @app.api_route(
+        "/api/{full_path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+        include_in_schema=False,
+    )
+    async def unknown_api(full_path: str):
+        raise HTTPException(status_code=404, detail="Not Found")
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web(full_path: str):
         asset = resolve_web_asset(full_path)

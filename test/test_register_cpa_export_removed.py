@@ -2,10 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import api.accounts as accounts_module
+from api.app import create_app
 
 
 AUTH_HEADERS = {"Authorization": "Bearer test-admin"}
@@ -20,17 +19,17 @@ class CpaOutputRemovalTests(unittest.TestCase):
         self.assertNotIn("cpa_auto_import", config)
 
     def test_accounts_api_no_longer_exposes_cpa_export_route(self) -> None:
-        app = FastAPI()
-        app.include_router(accounts_module.create_router())
+        app = create_app()
         client = TestClient(app)
 
-        response = client.post(
-            "/api/accounts/export/cpa",
-            headers=AUTH_HEADERS,
-            json={"access_tokens": ["token-one"]},
-        )
-
-        self.assertEqual(response.status_code, 404)
+        for method in ("post", "get"):
+            request = getattr(client, method)
+            kwargs = {"headers": AUTH_HEADERS}
+            if method == "post":
+                kwargs["json"] = {"access_tokens": ["token-one"]}
+            response = request("/api/accounts/export/cpa", **kwargs)
+            with self.subTest(method=method):
+                self.assertEqual(response.status_code, 404)
 
 
 if __name__ == "__main__":

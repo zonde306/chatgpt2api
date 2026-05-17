@@ -797,6 +797,86 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
         self.assertEqual(HeroClientWithCancelAndCode.instances[0].cancelled, ["old"])
         mark_bad.assert_called_with(6, "add_phone_send_failed:phone_number_in_use")
 
+    def test_codex_add_phone_retries_new_number_when_sms_times_out(self):
+        class RetrySmsSession:
+            def __init__(self):
+                self.sent_phones = []
+
+            def request(self, method, url, **kwargs):
+                if "/api/accounts/add-phone/send" in url:
+                    phone = kwargs.get("json", {}).get("phone_number")
+                    self.sent_phones.append(phone)
+                    return FakeResponse(
+                        status_code=200,
+                        json_data={"continue_url": "https://auth.openai.com/phone-verification"},
+                        url=url,
+                    )
+                if url == "https://auth.openai.com/phone-verification":
+                    return FakeResponse(status_code=200, url=url)
+                if "/api/accounts/phone-otp/validate" in url:
+                    return FakeResponse(
+                        status_code=200,
+                        json_data={"page": {"type": "sign_in_with_chatgpt_codex_consent"}},
+                        url=url,
+                    )
+                raise AssertionError(f"unexpected request {method} {url}")
+
+        class HeroClientWithTimeoutThenCode:
+            instances = []
+
+            def __init__(self, *args, **kwargs):
+                self.cancelled = []
+                HeroClientWithTimeoutThenCode.instances.append(self)
+
+            def get_status(self, activation_id):
+                return "STATUS_WAIT_CODE"
+
+            def poll_code(self, activation_id, *, timeout):
+                if activation_id == "old":
+                    raise RuntimeError("sms_code_timeout")
+                return "123456"
+
+            def cancel(self, activation_id):
+                self.cancelled.append(activation_id)
+                return "ACCESS_CANCEL"
+
+            def finish(self, activation_id):
+                self.finished = activation_id
+
+            def close(self):
+                pass
+
+        session = RetrySmsSession()
+        registrar = openai_register.PlatformRegistrar.__new__(openai_register.PlatformRegistrar)
+        registrar.session = session
+        registrar.device_id = "device-1"
+        hero_config = {
+            "enabled": True,
+            "api_key": "hero-key",
+            "wait_timeout": 30,
+            "poll_interval": 1,
+            "send_retry_attempts": 2,
+        }
+        activations = [
+            mock.Mock(activation_id="old", phone="10001", raw="ACCESS_NUMBER:old:10001", country=6),
+            mock.Mock(activation_id="new", phone="10002", raw="ACCESS_NUMBER:new:10002", country=117),
+        ]
+
+        with (
+            mock.patch.dict(openai_register.config, {"hero_sms": hero_config}),
+            mock.patch.object(openai_register, "resolve_activation", side_effect=activations),
+            mock.patch.object(openai_register, "HeroSmsClient", HeroClientWithTimeoutThenCode),
+            mock.patch.object(openai_register, "mark_country_bad") as mark_bad,
+            mock.patch.object(openai_register, "step"),
+        ):
+            continue_url = registrar._handle_codex_add_phone("https://auth.openai.com/add-phone", 1)
+
+        self.assertEqual(continue_url, "https://auth.openai.com/sign-in-with-chatgpt/codex/consent")
+        self.assertEqual(session.sent_phones, ["+10001", "+10002"])
+        self.assertEqual(HeroClientWithTimeoutThenCode.instances[0].cancelled, ["old"])
+        self.assertEqual(HeroClientWithTimeoutThenCode.instances[1].finished, "new")
+        mark_bad.assert_called_with(6, "sms_code_timeout")
+
     def test_codex_add_phone_caps_wait_timeout_and_cancels_when_sms_never_arrives(self):
         class SendOkSession:
             def request(self, method, url, **kwargs):
@@ -842,6 +922,7 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
             "poll_interval": 5,
             "auto_buy": True,
             "cancel_on_send_fail": True,
+            "send_retry_attempts": 1,
         }
         activation = mock.Mock(activation_id="387677529", phone="84901234889", raw="ACCESS_NUMBER:387677529:84901234889")
 
@@ -896,6 +977,7 @@ class OpenAIRegisterLoginFlowTests(unittest.TestCase):
             "api_key": "hero-key",
             "wait_timeout": 120,
             "poll_interval": 5,
+            "send_retry_attempts": 1,
         }
         activation = mock.Mock(activation_id="389071018", phone="447700901668", raw="ACCESS_NUMBER:389071018:447700901668")
 

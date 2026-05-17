@@ -133,7 +133,13 @@ class HeroSmsClient:
     def poll_code(self, activation_id: str, *, timeout: float = 1200) -> str:
         deadline = time.monotonic() + timeout
         while True:
-            raw = self.get_status(activation_id)
+            try:
+                raw = self.get_status(activation_id)
+            except requests.RequestException as exc:
+                if time.monotonic() >= deadline:
+                    raise HeroSmsError(f"sms_code_timeout: {exc}") from exc
+                time.sleep(self.poll_interval)
+                continue
             if raw.startswith("STATUS_OK:"):
                 code = raw.split(":", 1)[1].strip()
                 if code:

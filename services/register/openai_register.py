@@ -994,7 +994,7 @@ class PlatformRegistrar:
                 if send_resp is None or send_resp.status_code != 200:
                     data = _response_json(send_resp) if send_resp is not None else {}
                     code_text = str(((data.get("error") or {}).get("code") if isinstance(data, dict) else "") or "").strip()
-                    retryable_send_error = code_text in {"phone_number_in_use"}
+                    retryable_send_error = code_text in {"phone_number_in_use", "fraud_guard"}
                     mark_country_bad(getattr(activation, "country", None), f"add_phone_send_failed:{code_text or 'unknown'}")
                     cancel_activation("add_phone_send 失败")
                     last_send_error = error or f"add_phone_send_http_{getattr(send_resp, 'status_code', 'unknown')}{_response_error_detail(send_resp)}"
@@ -1022,9 +1022,13 @@ class PlatformRegistrar:
                 try:
                     code = client.poll_code(str(activation.activation_id), timeout=_hero_sms_wait_timeout(hero_sms))
                 except Exception as exc:
-                    if "sms_code_timeout" in str(exc):
+                    sms_timeout = "sms_code_timeout" in str(exc)
+                    if sms_timeout:
                         mark_country_bad(getattr(activation, "country", None), "sms_code_timeout")
                     cancel_activation("等待 HeroSMS 验证码失败")
+                    if sms_timeout and send_attempt < send_retry_attempts:
+                        step(index, f"HeroSMS 收码超时，换号重试 attempt={send_attempt}/{send_retry_attempts}", "yellow")
+                        continue
                     raise
                 step(index, f"HeroSMS 收到 add_phone 验证码: {code}")
                 verify_resp, error = request_with_local_retry(

@@ -76,6 +76,26 @@ class HeroSmsServiceTests(unittest.TestCase):
         self.assertEqual([call["params"]["action"] for call in session.calls], ["getStatus", "getStatus"])
         sleep.assert_called_once_with(0.1)
 
+    def test_poll_code_tolerates_transient_status_request_errors(self):
+        from services.hero_sms_service import HeroSmsClient, requests
+
+        class FlakySession(FakeSession):
+            def get(self, url, **kwargs):
+                self.calls.append({"method": "GET", "url": url, **kwargs})
+                if len(self.calls) == 1:
+                    raise requests.exceptions.ReadTimeout("read timed out")
+                return FakeResponse("STATUS_OK:654321")
+
+        session = FlakySession([])
+        client = HeroSmsClient("hero-key", session=session, poll_interval=0.1)
+
+        with mock.patch("services.hero_sms_service.time.sleep") as sleep:
+            code = client.poll_code("12345", timeout=5)
+
+        self.assertEqual(code, "654321")
+        self.assertEqual(len(session.calls), 2)
+        sleep.assert_called_once_with(0.1)
+
     def test_bad_key_json_response_raises_clear_error(self):
         from services.hero_sms_service import HeroSmsClient, HeroSmsError
 

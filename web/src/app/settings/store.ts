@@ -194,6 +194,7 @@ type SettingsStore = {
   setRegisterTargetAvailable: (value: string) => void;
   setRegisterCheckInterval: (value: string) => void;
   setRegisterMailField: (key: "request_timeout" | "wait_timeout" | "wait_interval", value: string) => void;
+  setRegisterHeroSmsField: (key: keyof RegisterConfig["hero_sms"], value: string | boolean) => void;
   addRegisterProvider: () => void;
   updateRegisterProvider: (index: number, updates: Record<string, unknown>) => void;
   deleteRegisterProvider: (index: number) => void;
@@ -583,6 +584,22 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     } : {});
   },
 
+  setRegisterHeroSmsField: (key, value) => {
+    set((state) => {
+      if (!state.registerConfig) return {};
+      const numericFields = new Set(["country", "wait_timeout", "poll_interval"]);
+      return {
+        registerConfig: {
+          ...state.registerConfig,
+          hero_sms: {
+            ...state.registerConfig.hero_sms,
+            [key]: numericFields.has(String(key)) ? Number(value) || 0 : value,
+          },
+        },
+      };
+    });
+  },
+
   addRegisterProvider: () => {
     set((state) => state.registerConfig ? {
       registerConfig: {
@@ -626,6 +643,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ isSavingRegister: true });
       const data = await updateRegisterConfig({
         mail: registerConfig.mail,
+        hero_sms: registerConfig.hero_sms,
         proxy: registerConfig.proxy.trim(),
         total: Math.max(1, Number(registerConfig.total) || 1),
         threads: Math.max(1, Number(registerConfig.threads) || 1),
@@ -651,6 +669,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       if (!registerConfig.enabled) {
         await updateRegisterConfig({
           mail: registerConfig.mail,
+          hero_sms: registerConfig.hero_sms,
           proxy: registerConfig.proxy.trim(),
           total: Math.max(1, Number(registerConfig.total) || 1),
           threads: Math.max(1, Number(registerConfig.threads) || 1),

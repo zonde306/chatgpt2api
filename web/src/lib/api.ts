@@ -209,6 +209,15 @@ export type RegisterConfig = {
     wait_interval: number;
     providers: Array<Record<string, unknown>>;
   };
+  hero_sms: {
+    enabled: boolean;
+    api_key: string;
+    service: string;
+    country: number;
+    operator: string;
+    wait_timeout: number;
+    poll_interval: number;
+  };
   proxy: string;
   total: number;
   threads: number;

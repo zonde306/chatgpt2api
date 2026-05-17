@@ -43,6 +43,30 @@ def _default_config() -> dict:
     }
 
 
+def _positive_int(value, default: int) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _normalize_hero_sms(raw: object) -> dict:
+    defaults = dict(openai_register.config.get("hero_sms") or {})
+    source = raw if isinstance(raw, dict) else {}
+    service = str(source.get("service") or defaults.get("service") or "dr").strip().lower() or "dr"
+    operator = str(source.get("operator") or defaults.get("operator") or "any").strip().lower() or "any"
+    return {
+        "enabled": bool(source.get("enabled") if "enabled" in source else defaults.get("enabled", False)),
+        "api_key": str(source.get("api_key") or defaults.get("api_key") or "").strip(),
+        "service": service,
+        "country": _positive_int(source.get("country"), int(defaults.get("country") or 16)),
+        "operator": operator,
+        "wait_timeout": _positive_int(source.get("wait_timeout"), int(defaults.get("wait_timeout") or 1200)),
+        "poll_interval": _positive_int(source.get("poll_interval"), int(defaults.get("poll_interval") or 5)),
+    }
+
+
 def _normalize(raw: dict) -> dict:
     cfg = _default_config()
     cfg.update({k: v for k, v in raw.items() if k not in {"stats", "logs"}})
@@ -53,6 +77,7 @@ def _normalize(raw: dict) -> dict:
     cfg["target_available"] = max(1, int(cfg.get("target_available") or 1))
     cfg["check_interval"] = max(1, int(cfg.get("check_interval") or 5))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
+    cfg["hero_sms"] = _normalize_hero_sms(cfg.get("hero_sms"))
     cfg["enabled"] = bool(cfg.get("enabled"))
     cfg.pop("cpa_auto_import", None)
     stats = {**_default_config()["stats"], **(raw.get("stats") if isinstance(raw.get("stats"), dict) else {}),
@@ -89,7 +114,7 @@ class RegisterService:
     def update(self, updates: dict) -> dict:
         with self._lock:
             self._config = _normalize({**self._config, **updates})
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads", "hero_sms")})
             self._save()
             return self.get()
 
@@ -103,7 +128,7 @@ class RegisterService:
             self._logs = []
             metrics = self._pool_metrics()
             self._config["stats"] = {"job_id": uuid.uuid4().hex, "success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], **metrics, "started_at": _now(), "updated_at": _now()}
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads", "hero_sms")})
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": time.time()})
             self._save()

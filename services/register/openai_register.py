@@ -34,11 +34,20 @@ config = {
     "proxy": "",
     "total": 10,
     "threads": 3,
+    "hero_sms": {
+        "enabled": False,
+        "api_key": "",
+        "service": "dr",
+        "country": 16,
+        "operator": "any",
+        "wait_timeout": 1200,
+        "poll_interval": 5,
+    },
 }
 register_config_file = base_dir.parents[1] / "data" / "register.json"
 try:
     saved_config = json.loads(register_config_file.read_text(encoding="utf-8"))
-    config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads") if key in saved_config})
+    config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads", "hero_sms") if key in saved_config})
 except Exception:
     pass
 
@@ -47,6 +56,8 @@ platform_base = "https://platform.openai.com"
 platform_oauth_client_id = "app_2SKx67EdpoN0G6j64rFvigXD"
 platform_oauth_redirect_uri = f"{platform_base}/auth/callback"
 platform_oauth_audience = "https://api.openai.com/v1"
+codex_oauth_client_id = "app_EMoamEEZ73f0CkXaXp7hrann"
+codex_oauth_redirect_uri = "http://localhost:1455/auth/callback"
 platform_auth0_client = "eyJuYW1lIjoiYXV0aDAtc3BhLWpzIiwidmVyc2lvbiI6IjEuMjEuMCJ9"
 user_agent = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -99,6 +110,34 @@ navigate_headers = {
     "sec-fetch-user": "?1",
     "upgrade-insecure-requests": "1",
 }
+
+platform_oauth_profile = {
+    "authorize_path": "/api/accounts/authorize",
+    "client_id": platform_oauth_client_id,
+    "redirect_uri": platform_oauth_redirect_uri,
+    "audience": platform_oauth_audience,
+    "scope": "openid profile email offline_access",
+    "referer": f"{platform_base}/",
+    "kind": "platform",
+}
+
+codex_oauth_profile = {
+    "authorize_path": "/oauth/authorize",
+    "client_id": codex_oauth_client_id,
+    "redirect_uri": codex_oauth_redirect_uri,
+    "scope": "openid email profile offline_access",
+    "referer": auth_base,
+    "kind": "codex",
+    "extra_params": {
+        "codex_cli_simplified_flow": "true",
+        "id_token_add_organizations": "true",
+        "prompt": "login",
+    },
+}
+
+
+def _oauth_profile(profile: dict | None = None) -> dict:
+    return profile or platform_oauth_profile
 
 
 def log(text: str, color: str = "") -> None:
@@ -410,6 +449,38 @@ def extract_oauth_callback_params_from_url(url: str) -> dict[str, str] | None:
     return {"code": code, "state": str((params.get("state") or [""])[0]).strip(), "scope": str((params.get("scope") or [""])[0]).strip()}
 
 
+def build_oauth_authorize_url(profile: dict | None, *, email: str, device_id: str, code_challenge: str) -> str:
+    profile = _oauth_profile(profile)
+    params = {
+        "client_id": profile["client_id"],
+        "redirect_uri": profile["redirect_uri"],
+        "scope": profile["scope"],
+        "response_type": "code",
+        "state": secrets.token_urlsafe(32),
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    if profile.get("kind") == "platform":
+        params.update(
+            {
+                "issuer": auth_base,
+                "audience": profile.get("audience") or "",
+                "device_id": device_id,
+                "screen_hint": "login_or_signup",
+                "max_age": "0",
+                "login_hint": email,
+                "response_mode": "query",
+                "nonce": secrets.token_urlsafe(32),
+                "auth0Client": platform_auth0_client,
+            }
+        )
+    else:
+        params.update(profile.get("extra_params") or {})
+        if email:
+            params["login_hint"] = email
+    return f"{auth_base}{profile['authorize_path']}?{urlencode(params)}"
+
+
 def extract_oauth_callback_params_from_response(resp) -> dict[str, str] | None:
     def candidates_from_response(item) -> list[str]:
         headers = getattr(item, "headers", {}) or {}
@@ -530,10 +601,11 @@ def _response_error_detail(resp) -> str:
     return f", body={text[:800]}" if text else ""
 
 
-def exchange_oauth_callback_params(code_verifier: str, callback_params: dict[str, str]) -> dict | None:
+def exchange_oauth_callback_params(code_verifier: str, callback_params: dict[str, str], profile: dict | None = None) -> dict | None:
     code = str(callback_params.get("code") or "").strip()
     if not code:
         return None
+    profile = _oauth_profile(profile)
     session = create_session(config["proxy"])
     try:
         resp, error = request_with_local_retry(
@@ -544,8 +616,8 @@ def exchange_oauth_callback_params(code_verifier: str, callback_params: dict[str
             data={
                 "grant_type": "authorization_code",
                 "code": code,
-                "redirect_uri": platform_oauth_redirect_uri,
-                "client_id": platform_oauth_client_id,
+                "redirect_uri": profile["redirect_uri"],
+                "client_id": profile["client_id"],
                 "code_verifier": code_verifier,
             },
             verify=False,
@@ -571,11 +643,11 @@ def exchange_oauth_callback_params(code_verifier: str, callback_params: dict[str
     }
 
 
-def exchange_platform_tokens(session: requests.Session, device_id: str, code_verifier: str, consent_url: str) -> dict | None:
+def exchange_platform_tokens(session: requests.Session, device_id: str, code_verifier: str, consent_url: str, profile: dict | None = None) -> dict | None:
     callback_params = extract_oauth_callback_params_from_consent_session(session, consent_url, device_id)
     if not callback_params:
         return None
-    return exchange_oauth_callback_params(code_verifier, callback_params)
+    return exchange_oauth_callback_params(code_verifier, callback_params, profile=profile)
 
 
 class PlatformRegistrar:
@@ -604,28 +676,10 @@ class PlatformRegistrar:
         self.session.cookies.set("oai-did", self.device_id, domain=".auth.openai.com")
         self.session.cookies.set("oai-did", self.device_id, domain="auth.openai.com")
         _, code_challenge = _generate_pkce()
-        params = {
-            "issuer": auth_base,
-            "client_id": platform_oauth_client_id,
-            "audience": platform_oauth_audience,
-            "redirect_uri": platform_oauth_redirect_uri,
-            "device_id": self.device_id,
-            "screen_hint": "login_or_signup",
-            "max_age": "0",
-            "login_hint": email,
-            "scope": "openid profile email offline_access",
-            "response_type": "code",
-            "response_mode": "query",
-            "state": secrets.token_urlsafe(32),
-            "nonce": secrets.token_urlsafe(32),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-            "auth0Client": platform_auth0_client,
-        }
         resp, error = request_with_local_retry(
             self.session,
             "get",
-            f"{auth_base}/api/accounts/authorize?{urlencode(params)}",
+            build_oauth_authorize_url(platform_oauth_profile, email=email, device_id=self.device_id, code_challenge=code_challenge),
             headers=self._navigate_headers(f"{platform_base}/"),
             allow_redirects=False,
             verify=False,
@@ -678,32 +732,15 @@ class PlatformRegistrar:
             raise RuntimeError(error or f"create_account_http_{getattr(resp, 'status_code', 'unknown')}{detail}")
         step(index, "创建账号资料完成")
 
-    def _login_and_exchange_tokens(self, email: str, password: str, mailbox: dict, index: int) -> dict:
+    def _login_and_exchange_tokens(self, email: str, password: str, mailbox: dict, index: int, profile: dict | None = None) -> dict:
         step(index, "开始独立登录换 token")
+        profile = _oauth_profile(profile)
         code_verifier, code_challenge = _generate_pkce()
-        params = {
-            "issuer": auth_base,
-            "client_id": platform_oauth_client_id,
-            "audience": platform_oauth_audience,
-            "redirect_uri": platform_oauth_redirect_uri,
-            "device_id": self.device_id,
-            "screen_hint": "login_or_signup",
-            "max_age": "0",
-            "login_hint": email,
-            "scope": "openid profile email offline_access",
-            "response_type": "code",
-            "response_mode": "query",
-            "state": secrets.token_urlsafe(32),
-            "nonce": secrets.token_urlsafe(32),
-            "code_challenge": code_challenge,
-            "code_challenge_method": "S256",
-            "auth0Client": platform_auth0_client,
-        }
         resp, error = request_with_local_retry(
             self.session,
             "get",
-            f"{auth_base}/api/accounts/authorize?{urlencode(params)}",
-            headers=self._navigate_headers(f"{platform_base}/"),
+            build_oauth_authorize_url(profile, email=email, device_id=self.device_id, code_challenge=code_challenge),
+            headers=self._navigate_headers(str(profile.get("referer") or f"{platform_base}/")),
             allow_redirects=False,
             verify=False,
             timeout=20,
@@ -714,7 +751,7 @@ class PlatformRegistrar:
         step(index, "登录 authorize 完成")
         callback_params = extract_oauth_callback_params_from_response(resp)
         if callback_params:
-            tokens = exchange_oauth_callback_params(code_verifier, callback_params)
+            tokens = exchange_oauth_callback_params(code_verifier, callback_params, profile=profile)
             if tokens:
                 step(index, "authorize 已返回 OAuth code，跳过密码校验")
                 return tokens
@@ -744,13 +781,13 @@ class PlatformRegistrar:
             step(index, "独立登录验证码校验完成")
         if not continue_url:
             continue_url = f"{auth_base}/sign-in-with-chatgpt/codex/consent"
-        tokens = exchange_platform_tokens(self.session, self.device_id, code_verifier, continue_url)
+        tokens = exchange_platform_tokens(self.session, self.device_id, code_verifier, continue_url, profile=profile)
         if not tokens:
             raise RuntimeError("token换取失败")
         step(index, "token 换取完成")
         return tokens
 
-    def register(self, index: int) -> dict:
+    def register(self, index: int, profile: dict | None = None) -> dict:
         mailbox: dict = {}
         try:
             step(index, "开始创建邮箱")
@@ -771,7 +808,7 @@ class PlatformRegistrar:
             step(index, f"收到注册验证码: {code}")
             self._validate_otp(code, index)
             self._create_account(f"{first_name} {last_name}", _random_birthdate(), index)
-            tokens = self._login_and_exchange_tokens(email, password, mailbox, index)
+            tokens = self._login_and_exchange_tokens(email, password, mailbox, index, profile=profile)
             return {
                 "email": email,
                 "password": password,

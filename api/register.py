@@ -13,6 +13,7 @@ from services.register_service import register_service
 
 class RegisterConfigRequest(BaseModel):
     mail: dict | None = None
+    hero_sms: dict | None = None
     proxy: str | None = None
     total: int | None = None
     threads: int | None = None

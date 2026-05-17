@@ -23,6 +23,7 @@ export function RegisterCard() {
   const setTargetAvailable = useSettingsStore((state) => state.setRegisterTargetAvailable);
   const setCheckInterval = useSettingsStore((state) => state.setRegisterCheckInterval);
   const setMailField = useSettingsStore((state) => state.setRegisterMailField);
+  const setHeroSmsField = useSettingsStore((state) => state.setRegisterHeroSmsField);
   const addProvider = useSettingsStore((state) => state.addRegisterProvider);
   const updateProvider = useSettingsStore((state) => state.updateRegisterProvider);
   const deleteProvider = useSettingsStore((state) => state.deleteRegisterProvider);
@@ -112,6 +113,46 @@ export function RegisterCard() {
             <div className="space-y-2">
               <label className="text-sm text-stone-700">检查间隔（秒）</label>
               <Input value={String(config.check_interval || "")} onChange={(event) => setCheckInterval(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || config.mode === "total"} />
+            </div>
+          </div>
+
+          <div className="space-y-3 border-t border-stone-200 pt-3">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-stone-800">HeroSMS 接码配置</h3>
+                <p className="mt-1 text-xs text-stone-500">用于 Codex OAuth 遇到手机号验证时自动买号、轮询验证码。OpenAI 服务码默认 dr。</p>
+              </div>
+              <label className="flex items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(config.hero_sms.enabled)} onCheckedChange={(checked) => setHeroSmsField("enabled", Boolean(checked))} disabled={config.enabled} />
+                启用
+              </label>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-sm text-stone-700">HeroSMS API Key</label>
+                <Input value={config.hero_sms.api_key} onChange={(event) => setHeroSmsField("api_key", event.target.value)} placeholder="HeroSMS API key" className="h-10 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">服务码</label>
+                <Input value={config.hero_sms.service} onChange={(event) => setHeroSmsField("service", event.target.value)} placeholder="dr" className="h-10 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">国家 ID</label>
+                <Input value={String(config.hero_sms.country || "")} onChange={(event) => setHeroSmsField("country", event.target.value)} placeholder="16" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                <p className="text-[11px] text-stone-400">常用：16 英国，187 美国，36 加拿大。</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">运营商</label>
+                <Input value={config.hero_sms.operator} onChange={(event) => setHeroSmsField("operator", event.target.value)} placeholder="any" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">短信等待超时（秒）</label>
+                <Input value={String(config.hero_sms.wait_timeout || "")} onChange={(event) => setHeroSmsField("wait_timeout", event.target.value)} placeholder="1200" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">短信轮询间隔（秒）</label>
+                <Input value={String(config.hero_sms.poll_interval || "")} onChange={(event) => setHeroSmsField("poll_interval", event.target.value)} placeholder="5" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
             </div>
           </div>
 

@@ -11,6 +11,7 @@ from services.config import config
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_DIST_DIR = BASE_DIR / "web_dist"
+WEB_OUT_DIR = BASE_DIR / "web" / "out"
 
 
 def extract_bearer_token(authorization: str | None) -> str:
@@ -99,10 +100,14 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
 
 
 def resolve_web_asset(requested_path: str) -> Path | None:
-    if not WEB_DIST_DIR.exists():
+    base_dir = None
+    if WEB_DIST_DIR.exists():
+        base_dir = WEB_DIST_DIR.resolve()
+    elif WEB_OUT_DIR.exists():
+        base_dir = WEB_OUT_DIR.resolve()
+    if base_dir is None:
         return None
     clean_path = requested_path.strip("/")
-    base_dir = WEB_DIST_DIR.resolve()
     candidates = [base_dir / "index.html"] if not clean_path else [
         base_dir / Path(clean_path),
         base_dir / clean_path / "index.html",

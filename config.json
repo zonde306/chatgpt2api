@@ -11,7 +11,7 @@
     "info",
     "warning"
   ],
-  "proxy": "http://host.docker.internal:7897",
+  "proxy": "",
   "base_url": "",
   "sensitive_words": [],
   "global_system_prompt": "",

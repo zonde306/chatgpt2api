@@ -13,6 +13,7 @@ import tiktoken
 
 from services.account_service import account_service
 from services.config import config
+from services.image_convert import convert_image_bytes, convert_uploaded_image
 from services.openai_backend_api import OpenAIBackendAPI
 from utils.helper import IMAGE_MODELS, extract_image_from_message_content
 from utils.log import logger
@@ -68,12 +69,16 @@ def encode_images(images: Iterable[tuple[bytes, str, str]]) -> list[str]:
 
 def save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
     config.cleanup_old_images()
-    file_hash = hashlib.md5(image_data).hexdigest()
-    filename = f"{int(time.time())}_{file_hash}.png"
+    # Convert image according to config
+    converted = convert_image_bytes(image_data)
+    fmt = config.image_convert_format or "png"
+    ext = "jpg" if fmt == "jpeg" else fmt
+    file_hash = hashlib.md5(converted).hexdigest()
+    filename = f"{int(time.time())}_{file_hash}.{ext}"
     relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
     file_path = config.images_dir / relative_dir / filename
     file_path.parent.mkdir(parents=True, exist_ok=True)
-    file_path.write_bytes(image_data)
+    file_path.write_bytes(converted)
     return f"{(base_url or config.base_url)}/images/{relative_dir.as_posix()}/{filename}"
 
 
@@ -120,7 +125,9 @@ def normalize_messages(messages: object, system: Any = None) -> list[dict[str, A
                 if text:
                     parts.append({"type": "text", "text": text})
                 for data, mime in images:
-                    parts.append({"type": "image", "data": data, "mime": mime})
+                    # Convert uploaded image if configured
+                    converted_data = convert_uploaded_image(data, mime)
+                    parts.append({"type": "image", "data": converted_data, "mime": mime})
                 normalized.append({"role": role, "content": parts})
             else:
                 normalized.append({"role": role, "content": text})

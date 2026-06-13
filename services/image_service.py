@@ -14,6 +14,12 @@ from services.image_tags_service import load_tags, remove_tags
 
 THUMBNAIL_SIZE = (320, 320)
 
+IMAGE_HEADERS = {
+    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Methods": "GET, OPTIONS",
+    "Access-Control-Allow-Headers": "*",
+    "Cache-Control": "public, max-age=31536000, immutable",
+}
 
 def _cleanup_empty_dirs(root: Path) -> None:
     for path in sorted((p for p in root.rglob("*") if p.is_dir()), key=lambda p: len(p.parts), reverse=True):
@@ -86,12 +92,12 @@ def ensure_thumbnail(relative_path: str) -> Path:
 
 
 def get_thumbnail_response(relative_path: str) -> FileResponse:
-    return FileResponse(ensure_thumbnail(relative_path))
+    return FileResponse(ensure_thumbnail(relative_path), headers=IMAGE_HEADERS)
 
 
 def get_image_download_response(relative_path: str) -> FileResponse:
     path = _safe_image_path(relative_path)
-    return FileResponse(path, filename=path.name)
+    return FileResponse(path, filename=path.name, headers=IMAGE_HEADERS)
 
 
 def cleanup_image_thumbnails() -> int:

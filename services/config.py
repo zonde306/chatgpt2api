@@ -195,6 +195,25 @@ class ConfigStore:
             return 3
 
     @property
+    def image_convert_format(self) -> str:
+        value = str(self.data.get("image_convert_format") or "").strip().lower()
+        return value if value in {"webp", "jpeg", "png"} else ""
+
+    @property
+    def image_convert_quality(self) -> int:
+        try:
+            return max(1, min(100, int(self.data.get("image_convert_quality", 80))))
+        except (TypeError, ValueError):
+            return 80
+
+    @property
+    def image_convert_uploaded(self) -> bool:
+        value = self.data.get("image_convert_uploaded", False)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", False)
         if isinstance(value, str):
@@ -278,6 +297,9 @@ class ConfigStore:
         data["image_retention_days"] = self.image_retention_days
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_account_concurrency"] = self.image_account_concurrency
+        data["image_convert_format"] = self.image_convert_format
+        data["image_convert_quality"] = self.image_convert_quality
+        data["image_convert_uploaded"] = self.image_convert_uploaded
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["log_levels"] = self.log_levels

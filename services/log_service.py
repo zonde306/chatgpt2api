@@ -234,7 +234,7 @@ class LoggedCall:
                 self.log("流式调用结束", urls=urls)
 
     def log(self, suffix: str, result: object = None, status: str = "success", error: str = "",
-            urls: list[str] | None = None) -> None:
+            urls: list[str] | None = None, uploaded_images: list[dict[str, object]] | None = None) -> None:
         detail = {
             "key_id": self.identity.get("id"),
             "key_name": self.identity.get("name"),
@@ -254,4 +254,6 @@ class LoggedCall:
         collected_urls = [*(urls or []), *_collect_urls(result)]
         if collected_urls:
             detail["urls"] = list(dict.fromkeys(collected_urls))
+        if uploaded_images:
+            detail["uploaded_images"] = uploaded_images
         log_service.add(LOG_TYPE_CALL, f"{self.summary}{suffix}", detail)

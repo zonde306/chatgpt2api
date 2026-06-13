@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from api.support import require_identity, resolve_image_base_url
 from services.content_filter import check_request
+from services.image_convert import convert_uploaded_image
 from services.image_task_service import image_task_service
 from services.log_service import LoggedCall
 
@@ -73,16 +74,29 @@ def create_router() -> APIRouter:
         size: str | None = Form(default=None),
     ):
         identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", model, "图生图任务", request_text=prompt), prompt)
+        call = LoggedCall(identity, "/api/image-tasks/edits", model, "图生图任务", request_text=prompt)
+        await filter_or_log(call, prompt)
         uploads = [*(image or []), *(image_list or [])]
         if not uploads:
             raise HTTPException(status_code=400, detail={"error": "image file is required"})
         images: list[tuple[bytes, str, str]] = []
+        uploaded_image_info: list[dict[str, object]] = []
         for upload in uploads:
             image_data = await upload.read()
             if not image_data:
                 raise HTTPException(status_code=400, detail={"error": "image file is empty"})
-            images.append((image_data, upload.filename or "image.png", upload.content_type or "image/png"))
+            # Convert uploaded image if configured
+            converted_data = convert_uploaded_image(image_data, upload.content_type or "image/png")
+            images.append((converted_data, upload.filename or "image.png", upload.content_type or "image/png"))
+            uploaded_image_info.append({
+                "filename": upload.filename or "image.png",
+                "size": len(image_data),
+                "converted_size": len(converted_data) if converted_data is not image_data else None,
+                "content_type": upload.content_type or "image/png",
+            })
+        # Log uploaded images
+        if uploaded_image_info:
+            call.log("上传图片", status="success", uploaded_images=uploaded_image_info)
         try:
             return await run_in_threadpool(
                 image_task_service.submit_edit,

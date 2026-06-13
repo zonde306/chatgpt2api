@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { testProxy, type ProxyTestResult } from "@/lib/api";
 
@@ -24,6 +25,9 @@ export function ConfigCard() {
   const setImageRetentionDays = useSettingsStore((state) => state.setImageRetentionDays);
   const setImagePollTimeoutSecs = useSettingsStore((state) => state.setImagePollTimeoutSecs);
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
+  const setImageConvertFormat = useSettingsStore((state) => state.setImageConvertFormat);
+  const setImageConvertQuality = useSettingsStore((state) => state.setImageConvertQuality);
+  const setImageConvertUploaded = useSettingsStore((state) => state.setImageConvertUploaded);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
@@ -162,6 +166,41 @@ export function ConfigCard() {
             />
             <p className="text-xs text-stone-500">限制每个账号同时处理的图片请求数量，默认 3。</p>
           </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">图片转换格式</label>
+            <Select
+              value={String(config?.image_convert_format || "none")}
+              onValueChange={(value) => setImageConvertFormat(value === "none" ? "" : value)}
+            >
+              <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                <SelectValue placeholder="不转换（保持原格式）" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">不转换（保持原格式）</SelectItem>
+                <SelectItem value="webp">WebP</SelectItem>
+                <SelectItem value="jpeg">JPEG</SelectItem>
+                <SelectItem value="png">PNG</SelectItem>
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-stone-500">将生成的图片统一转换为指定格式以节省空间。</p>
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm text-stone-700">图片转换质量</label>
+            <Input
+              value={String(config?.image_convert_quality ?? "")}
+              onChange={(event) => setImageConvertQuality(event.target.value)}
+              placeholder="80"
+              className="h-10 rounded-xl border-stone-200 bg-white"
+            />
+            <p className="text-xs text-stone-500">1-100，仅对 JPEG/WebP 有效，默认 80。</p>
+          </div>
+          <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+            <Checkbox
+              checked={Boolean(config?.image_convert_uploaded)}
+              onCheckedChange={(checked) => setImageConvertUploaded(Boolean(checked))}
+            />
+            转换用户上传的图片
+          </label>
           <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <Checkbox
               checked={Boolean(config?.auto_remove_invalid_accounts)}

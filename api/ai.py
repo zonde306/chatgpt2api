@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.support import require_identity, resolve_image_base_url
 from services.content_filter import check_request, request_text
+from services.image_convert import convert_uploaded_image
 from services.log_service import LoggedCall
+from utils.helper import count_images_in_body
 from services.protocol import (
     anthropic_v1_messages,
     openai_v1_chat_complete,
@@ -62,6 +64,13 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
         raise
 
 
+def _log_images_in_body(call: LoggedCall, body: dict[str, object]) -> None:
+    """Log image count in request body for chat/responses/messages endpoints."""
+    image_count = count_images_in_body(body)
+    if image_count > 0:
+        call.log("上传图片", status="success", uploaded_images=[{"count": image_count}])
+
+
 def create_router() -> APIRouter:
     router = APIRouter()
 
@@ -108,11 +117,23 @@ def create_router() -> APIRouter:
         if not uploads:
             raise HTTPException(status_code=400, detail={"error": "image file is required"})
         images: list[tuple[bytes, str, str]] = []
+        uploaded_image_info: list[dict[str, object]] = []
         for upload in uploads:
             image_data = await upload.read()
             if not image_data:
                 raise HTTPException(status_code=400, detail={"error": "image file is empty"})
-            images.append((image_data, upload.filename or "image.png", upload.content_type or "image/png"))
+            # Convert uploaded image if configured
+            converted_data = convert_uploaded_image(image_data, upload.content_type or "image/png")
+            images.append((converted_data, upload.filename or "image.png", upload.content_type or "image/png"))
+            uploaded_image_info.append({
+                "filename": upload.filename or "image.png",
+                "size": len(image_data),
+                "converted_size": len(converted_data) if converted_data is not image_data else None,
+                "content_type": upload.content_type or "image/png",
+            })
+        # Log uploaded images
+        if uploaded_image_info:
+            call.log("上传图片", status="success", uploaded_images=uploaded_image_info)
         payload = {
             "prompt": prompt,
             "images": images,
@@ -132,6 +153,7 @@ def create_router() -> APIRouter:
         model = str(payload.get("model") or "auto")
         request_preview = request_text(payload.get("prompt"), payload.get("messages"))
         call = LoggedCall(identity, "/v1/chat/completions", model, "文本生成", request_text=request_preview)
+        _log_images_in_body(call, payload)
         await filter_or_log(call, request_preview)
         return await call.run(openai_v1_chat_complete.handle, payload)
 
@@ -142,6 +164,7 @@ def create_router() -> APIRouter:
         model = str(payload.get("model") or "auto")
         request_preview = request_text(payload.get("input"), payload.get("instructions"))
         call = LoggedCall(identity, "/v1/responses", model, "Responses", request_text=request_preview)
+        _log_images_in_body(call, payload)
         await filter_or_log(call, request_preview)
         return await call.run(openai_v1_response.handle, payload)
 
@@ -157,6 +180,7 @@ def create_router() -> APIRouter:
         model = str(payload.get("model") or "auto")
         request_preview = request_text(payload.get("system"), payload.get("messages"), payload.get("tools"))
         call = LoggedCall(identity, "/v1/messages", model, "Messages", request_text=request_preview)
+        _log_images_in_body(call, payload)
         await filter_or_log(call, request_preview)
         return await call.run(anthropic_v1_messages.handle, payload, sse="anthropic")
 

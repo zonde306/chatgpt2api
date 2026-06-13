@@ -9,6 +9,7 @@ from typing import Any, Iterator
 
 from curl_cffi import requests
 from fastapi import HTTPException
+from services.image_convert import convert_uploaded_image
 from utils.log import logger
 
 IMAGE_MODELS = {"gpt-image-2", "codex-gpt-image-2"}
@@ -181,13 +182,19 @@ def extract_image_from_message_content(content: object) -> list[tuple[bytes, str
             if url.startswith("data:"):
                 header, _, data = url.partition(",")
                 mime = header.split(";")[0].removeprefix("data:")
-                images.append((base64.b64decode(data), mime or "image/png"))
+                image_data = base64.b64decode(data)
+                # Convert uploaded image if configured
+                converted_data = convert_uploaded_image(image_data, mime or "image/png")
+                images.append((converted_data, mime or "image/png"))
         elif item_type == "input_image":
             image_url = str(item.get("image_url") or "")
             if image_url.startswith("data:"):
                 header, _, data = image_url.partition(",")
                 mime = header.split(";")[0].removeprefix("data:")
-                images.append((base64.b64decode(data), mime or "image/png"))
+                image_data = base64.b64decode(data)
+                # Convert uploaded image if configured
+                converted_data = convert_uploaded_image(image_data, mime or "image/png")
+                images.append((converted_data, mime or "image/png"))
     return images
 
 
@@ -204,6 +211,33 @@ def extract_chat_image(body: dict[str, object]) -> list[tuple[bytes, str]]:
         if images:
             return images
     return []
+
+
+def count_images_in_body(body: dict[str, object]) -> int:
+    """Count the number of images in a request body (chat, responses, messages)."""
+    count = 0
+    # Check messages field (chat completions, messages)
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            content = message.get("content")
+            if isinstance(content, list):
+                for part in content:
+                    if isinstance(part, dict) and str(part.get("type") or "").strip() in {"image_url", "input_image", "image"}:
+                        count += 1
+    # Check input field (responses)
+    input_value = body.get("input")
+    if isinstance(input_value, list):
+        for item in input_value:
+            if isinstance(item, dict):
+                content = item.get("content")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and str(part.get("type") or "").strip() in {"image_url", "input_image", "image"}:
+                            count += 1
+    return count
 
 
 def extract_chat_prompt(body: dict[str, object]) -> str:

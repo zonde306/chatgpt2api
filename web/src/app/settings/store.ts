@@ -71,6 +71,9 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_retention_days: Number(config.image_retention_days || 30),
     image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
+    image_convert_format: String(config.image_convert_format || ""),
+    image_convert_quality: Number(config.image_convert_quality || 80),
+    image_convert_uploaded: Boolean(config.image_convert_uploaded),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
@@ -208,6 +211,9 @@ type SettingsStore = {
   setImageRetentionDays: (value: string) => void;
   setImagePollTimeoutSecs: (value: string) => void;
   setImageAccountConcurrency: (value: string) => void;
+  setImageConvertFormat: (value: string) => void;
+  setImageConvertQuality: (value: string) => void;
+  setImageConvertUploaded: (value: boolean) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
@@ -341,6 +347,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
         image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
+        image_convert_format: String(config.image_convert_format || "").trim(),
+        image_convert_quality: Math.max(1, Math.min(100, Number(config.image_convert_quality) || 80)),
+        image_convert_uploaded: Boolean(config.image_convert_uploaded),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
         auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
         proxy: config.proxy.trim(),
@@ -403,6 +412,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageAccountConcurrency: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_account_concurrency: value } } : {});
+  },
+
+  setImageConvertFormat: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_convert_format: value } } : {});
+  },
+
+  setImageConvertQuality: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_convert_quality: value } } : {});
+  },
+
+  setImageConvertUploaded: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_convert_uploaded: value } } : {});
   },
 
   setAutoRemoveInvalidAccounts: (value) => {
